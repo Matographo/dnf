@@ -113,3 +113,14 @@ function plugin.getRequirements() return {} end
 function plugin.info(name) 
     return { name = name, version = "unknown", description = "DNF Package" } 
 end
+
+function plugin.getMissingPackages(packages)
+    local missing = {}
+    for _, pkg in ipairs(packages or {}) do
+        if not command_succeeds("rpm -q --quiet " .. shell_quote(package_spec(pkg)) .. " >/dev/null 2>&1") then
+            table.insert(missing, pkg)
+        end
+    end
+
+    return missing
+end
