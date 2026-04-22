@@ -1,15 +1,26 @@
--- fedora_dnf.lua
 plugin = {
     name = "Fedora DNF Manager",
-    version = "1.1.0",
+    version = "1.2.0",
     author = "Leodora",
-    description = "Echtes DNF Plugin für Fedora"
+    description = "Echtes DNF Plugin fuer Fedora"
 }
+
+local function trim(value)
+    return (tostring(value or ""):gsub("^%s+", ""):gsub("%s+$", ""))
+end
+
+local function shell_quote(value)
+    return "'" .. tostring(value):gsub("'", "'\\''") .. "'"
+end
+
+local function command_succeeds(cmd)
+    local success, _, code = os.execute(cmd)
+    return success == true or success == 0 or code == 0
+end
 
 local function sys_call(cmd)
     print("[DNF-Exec] " .. cmd)
-    local success, exit_type, code = os.execute(cmd)
-    return success
+    return command_succeeds(cmd)
 end
 
 local function package_spec(pkg)
@@ -20,12 +31,19 @@ local function package_spec(pkg)
     return pkg.name .. "-" .. pkg.version
 end
 
-function plugin.init()
-    local handle = io.popen("which dnf 2>/dev/null")
-    local result = handle:read("*a")
+local function command_exists(name)
+    local handle = io.popen("command -v " .. name .. " 2>/dev/null")
+    if handle == nil then
+        return false
+    end
+
+    local result = handle:read("*a") or ""
     handle:close()
-    
-    if result == "" then
+    return trim(result) ~= ""
+end
+
+function plugin.init()
+    if not command_exists("dnf") then
         print("[Lua: DNF] Fehler: dnf wurde auf diesem System nicht gefunden!")
         return false
     end
@@ -34,6 +52,17 @@ end
 
 function plugin.getCategories()
     return { "System", "RPM", "Fedora Native" }
+end
+
+function plugin.getMissingPackages(packages)
+    local missing = {}
+    for _, pkg in ipairs(packages or {}) do
+        if not command_succeeds("rpm -q --quiet " .. shell_quote(package_spec(pkg)) .. " >/dev/null 2>&1") then
+            table.insert(missing, pkg)
+        end
+    end
+
+    return missing
 end
 
 function plugin.install(packages)
@@ -46,17 +75,17 @@ function plugin.install(packages)
     local batch_string = table.concat(names, " ")
 
     print("[Lua: DNF] Installiere Batch: " .. batch_string)
-    
+
     local cmd = "sudo dnf install -y " .. batch_string
     return sys_call(cmd)
 end
 
 function plugin.remove(packages)
     if #packages == 0 then return true end
-    
+
     local names = {}
     for _, pkg in ipairs(packages) do table.insert(names, pkg.name) end
-    
+
     local cmd = "sudo dnf remove -y " .. table.concat(names, " ")
     return sys_call(cmd)
 end
@@ -108,19 +137,10 @@ function plugin.shutdown()
     return true
 end
 
-function plugin.getRequirements() return {} end
-
-function plugin.info(name) 
-    return { name = name, version = "unknown", description = "DNF Package" } 
+function plugin.getRequirements()
+    return {}
 end
 
-function plugin.getMissingPackages(packages)
-    local missing = {}
-    for _, pkg in ipairs(packages or {}) do
-        if not command_succeeds("rpm -q --quiet " .. shell_quote(package_spec(pkg)) .. " >/dev/null 2>&1") then
-            table.insert(missing, pkg)
-        end
-    end
-
-    return missing
+function plugin.info(name)
+    return { name = name, version = "unknown", description = "DNF Package" }
 end
